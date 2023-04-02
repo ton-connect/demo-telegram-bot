@@ -1,9 +1,10 @@
 import TelegramBot, { CallbackQuery } from 'node-telegram-bot-api';
 import { getWallets } from './ton-connect/wallets';
 import { bot } from './bot';
-import { getConnector } from './ton-connect/connector';
+import { getConnector, onNewConnectorGenerated } from './ton-connect/connector';
 import QRCode from 'qrcode';
 import fs from 'fs';
+import { markQRAsExpiredAfterTimeout, setQRExpiredTimeout } from './bot-utils';
 
 export const walletMenuCallbacks = {
     chose_wallet: onChooseWalletClick,
@@ -41,13 +42,26 @@ async function onOpenUniversalQRClick(query: CallbackQuery, _: string): Promise<
     const chatId = query.message!.chat.id;
     const wallets = await getWallets();
 
-    const connector = getConnector(chatId, { stopAfterConnection: true });
+    const connector = getConnector(chatId);
 
-    connector.onStatusChange(wallet => {
+    const unsubscribe = connector.onStatusChange(wallet => {
         if (wallet) {
             bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
+            connector.pauseConnection();
         }
     });
+
+    onNewConnectorGenerated(chatId, () => {
+        connector.pauseConnection();
+        unsubscribe();
+    });
+
+    setQRExpiredTimeout(() => {
+        connector.pauseConnection();
+        unsubscribe();
+    });
+
+    markQRAsExpiredAfterTimeout(query.message!);
 
     const link = connector.connect(wallets);
 
@@ -78,16 +92,27 @@ async function onOpenUniversalQRClick(query: CallbackQuery, _: string): Promise<
 }
 
 async function onWalletClick(query: CallbackQuery, data: string): Promise<void> {
-    const connector = getConnector(query.message!.chat.id, { stopAfterConnection: true });
+    const chatId = query.message!.chat.id;
+    const connector = getConnector(chatId);
 
-    connector.onStatusChange(wallet => {
+    const unsubscribe = connector.onStatusChange(wallet => {
         if (wallet) {
-            bot.sendMessage(
-                query.message!.chat.id,
-                `${wallet.device.appName} wallet connected successfully`
-            );
+            bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
+            connector.pauseConnection();
         }
     });
+
+    onNewConnectorGenerated(chatId, () => {
+        connector.pauseConnection();
+        unsubscribe();
+    });
+
+    setQRExpiredTimeout(() => {
+        connector.pauseConnection();
+        unsubscribe();
+    });
+
+    markQRAsExpiredAfterTimeout(query.message!);
 
     const wallets = await getWallets();
 
@@ -120,7 +145,7 @@ async function onWalletClick(query: CallbackQuery, data: string): Promise<void> 
         },
         {
             message_id: query.message?.message_id,
-            chat_id: query.message?.chat.id
+            chat_id: chatId
         }
     );
 }

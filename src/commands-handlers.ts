@@ -8,24 +8,40 @@ import { bot } from './bot';
 import { getWallets } from './ton-connect/wallets';
 import QRCode from 'qrcode';
 import TelegramBot from 'node-telegram-bot-api';
-import { getConnector } from './ton-connect/connector';
+import { getConnector, onNewConnectorGenerated } from './ton-connect/connector';
+import {
+    deleteMessageAndStopConnectorAfterTimeout,
+    markQRAsExpiredAfterTimeout,
+    setQRExpiredTimeout
+} from './bot-utils';
 
 export async function handleConnectCommand(msg: TelegramBot.Message): Promise<void> {
     const chatId = msg.chat.id;
     const wallets = await getWallets();
 
-    const connector = getConnector(chatId, { stopAfterConnection: true });
+    const connector = getConnector(chatId);
 
-    connector.onStatusChange(wallet => {
+    const unsubscribe = connector.onStatusChange(wallet => {
         if (wallet) {
             bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
+            connector.pauseConnection();
         }
+    });
+
+    onNewConnectorGenerated(chatId, () => {
+        connector.pauseConnection();
+        unsubscribe();
+    });
+
+    setQRExpiredTimeout(() => {
+        connector.pauseConnection();
+        unsubscribe();
     });
 
     const link = connector.connect(wallets);
     const image = await QRCode.toBuffer(link);
 
-    await bot.sendPhoto(chatId, image, {
+    const botMessage = await bot.sendPhoto(chatId, image, {
         reply_markup: {
             inline_keyboard: [
                 [
@@ -43,6 +59,8 @@ export async function handleConnectCommand(msg: TelegramBot.Message): Promise<vo
             ]
         }
     });
+
+    markQRAsExpiredAfterTimeout(botMessage);
 }
 
 export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<void> {
@@ -77,7 +95,8 @@ export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<voi
             } else {
                 bot.sendMessage(chatId, `Unknown error happened`);
             }
-        });
+        })
+        .finally(() => connector.pauseConnection());
 
     let deeplink = '';
     const walletInfo = wallets.find(wallet => wallet.name === connector.wallet!.device.appName);
@@ -85,7 +104,7 @@ export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<voi
         deeplink = walletInfo.universalLink;
     }
 
-    await bot.sendMessage(
+    const botMessage = await bot.sendMessage(
         chatId,
         `Open ${connector.wallet!.device.appName} and confirm transaction`,
         {
@@ -101,6 +120,8 @@ export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<voi
             }
         }
     );
+
+    deleteMessageAndStopConnectorAfterTimeout(botMessage, connector);
 }
 
 export async function handleDisconnectCommand(msg: TelegramBot.Message): Promise<void> {
