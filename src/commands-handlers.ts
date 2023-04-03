@@ -11,20 +11,17 @@ import TelegramBot from 'node-telegram-bot-api';
 import { getConnector } from './ton-connect/connector';
 import { pTimeout, pTimeoutException } from './utils';
 
-let newConnectRequestListeners: (() => void)[] = [];
+let newConnectRequestListenersMap = new Map<number, () => void>();
 
 export async function handleConnectCommand(msg: TelegramBot.Message): Promise<void> {
-    newConnectRequestListeners.forEach(callback => callback());
-    let wasMessageDeleted = false;
-
     const chatId = msg.chat.id;
-    const wallets = await getWallets();
+    let messageWasDeleted = false;
+
+    newConnectRequestListenersMap.get(chatId)?.();
 
     const connector = getConnector(chatId, () => {
         unsubscribe();
-        if (!wasMessageDeleted) {
-            markQRAsExpired(botMessage);
-        }
+        deleteMessage();
     });
 
     await connector.restoreConnection();
@@ -42,12 +39,16 @@ export async function handleConnectCommand(msg: TelegramBot.Message): Promise<vo
         return;
     }
 
-    const unsubscribe = connector.onStatusChange(wallet => {
+    const unsubscribe = connector.onStatusChange(async wallet => {
         if (wallet) {
-            bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
+            await deleteMessage();
+
+            await bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
             unsubscribe();
         }
     });
+
+    const wallets = await getWallets();
 
     const link = connector.connect(wallets);
     const image = await QRCode.toBuffer(link);
@@ -71,14 +72,20 @@ export async function handleConnectCommand(msg: TelegramBot.Message): Promise<vo
         }
     });
 
-    const callback = async (): Promise<void> => {
-        unsubscribe();
-        await bot.deleteMessage(chatId, botMessage.message_id);
-        wasMessageDeleted = true;
-        newConnectRequestListeners = newConnectRequestListeners.filter(item => item !== callback);
+    const deleteMessage = async (): Promise<void> => {
+        if (!messageWasDeleted) {
+            messageWasDeleted = true;
+            await bot.deleteMessage(chatId, botMessage.message_id);
+        }
     };
 
-    newConnectRequestListeners.push(callback);
+    newConnectRequestListenersMap.set(chatId, async () => {
+        unsubscribe();
+
+        await deleteMessage();
+
+        newConnectRequestListenersMap.delete(chatId);
+    });
 }
 
 export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<void> {
@@ -102,7 +109,7 @@ export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<voi
             messages: [
                 {
                     amount: '1000000',
-                    address: '0:E69F10CC84877ABF539F83F879291E5CA169451BA7BCE91A37A5CED3AB8080D3'
+                    address: '0:0000000000000000000000000000000000000000000000000000000000000000'
                 }
             ]
         }),
@@ -161,14 +168,9 @@ export async function handleDisconnectCommand(msg: TelegramBot.Message): Promise
         return;
     }
 
-    connector
-        .disconnect()
-        .then(() => {
-            bot.sendMessage(chatId, `Wallet has been disconnected`);
-        })
-        .catch(() => {
-            bot.sendMessage(chatId, `Unknown error happened`);
-        });
+    await connector.disconnect();
+
+    await bot.sendMessage(chatId, 'Wallet has been disconnected');
 }
 
 export async function handleShowMyWalletCommand(msg: TelegramBot.Message): Promise<void> {
@@ -191,19 +193,4 @@ export async function handleShowMyWalletCommand(msg: TelegramBot.Message): Promi
             connector.wallet!.account.chain === CHAIN.TESTNET
         )}`
     );
-}
-
-async function markQRAsExpired(message: TelegramBot.Message): Promise<void> {
-    await bot.editMessageMedia(
-        { type: 'photo', media: 'attach://expired.png' },
-        {
-            message_id: message.message_id,
-            chat_id: message.chat.id
-        }
-    );
-
-    bot.editMessageCaption('QR code expired. Generate a new one to connect wallet.', {
-        message_id: message.message_id,
-        chat_id: message.chat.id
-    });
 }

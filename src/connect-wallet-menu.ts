@@ -3,7 +3,7 @@ import { getWallets } from './ton-connect/wallets';
 import { bot } from './bot';
 import { getConnector } from './ton-connect/connector';
 import QRCode from 'qrcode';
-import fs from 'fs';
+import * as fs from 'fs';
 
 export const walletMenuCallbacks = {
     chose_wallet: onChooseWalletClick,
