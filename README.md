@@ -8,3 +8,6 @@
 5. `npm run start`
 
 [See the tutorial](https://docs.ton.org/develop/dapps/ton-connect/tg-bot-integration)
+
+## Try it
+[ton_connect_example_bot](https://t.me/ton_connect_example_bot)
