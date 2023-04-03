@@ -1,10 +1,9 @@
 import TelegramBot, { CallbackQuery } from 'node-telegram-bot-api';
 import { getWallets } from './ton-connect/wallets';
 import { bot } from './bot';
-import { getConnector, onNewConnectorGenerated } from './ton-connect/connector';
+import { getConnector } from './ton-connect/connector';
 import QRCode from 'qrcode';
 import fs from 'fs';
-import { markQRAsExpiredAfterTimeout, setQRExpiredTimeout } from './bot-utils';
 
 export const walletMenuCallbacks = {
     chose_wallet: onChooseWalletClick,
@@ -44,25 +43,6 @@ async function onOpenUniversalQRClick(query: CallbackQuery, _: string): Promise<
 
     const connector = getConnector(chatId);
 
-    const unsubscribe = connector.onStatusChange(wallet => {
-        if (wallet) {
-            bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
-            connector.pauseConnection();
-        }
-    });
-
-    onNewConnectorGenerated(chatId, () => {
-        connector.pauseConnection();
-        unsubscribe();
-    });
-
-    setQRExpiredTimeout(() => {
-        connector.pauseConnection();
-        unsubscribe();
-    });
-
-    markQRAsExpiredAfterTimeout(query.message!);
-
     const link = connector.connect(wallets);
 
     await editQR(query.message!, link);
@@ -94,25 +74,6 @@ async function onOpenUniversalQRClick(query: CallbackQuery, _: string): Promise<
 async function onWalletClick(query: CallbackQuery, data: string): Promise<void> {
     const chatId = query.message!.chat.id;
     const connector = getConnector(chatId);
-
-    const unsubscribe = connector.onStatusChange(wallet => {
-        if (wallet) {
-            bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
-            connector.pauseConnection();
-        }
-    });
-
-    onNewConnectorGenerated(chatId, () => {
-        connector.pauseConnection();
-        unsubscribe();
-    });
-
-    setQRExpiredTimeout(() => {
-        connector.pauseConnection();
-        unsubscribe();
-    });
-
-    markQRAsExpiredAfterTimeout(query.message!);
 
     const wallets = await getWallets();
 

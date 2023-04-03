@@ -2,28 +2,45 @@ import TonConnect from '@tonconnect/sdk';
 import { TonConnectStorage } from './storage';
 import * as process from 'process';
 
-let connectorGeneratedListeners = new Map<number, (() => void)[]>();
-export function onNewConnectorGenerated(chatId: number, callback: () => void): () => void {
-    const listeners = connectorGeneratedListeners.get(chatId) || [];
-    listeners.push(callback);
-    connectorGeneratedListeners.set(chatId, listeners);
+type StoredConnectorData = {
+    connector: TonConnect;
+    timeout: ReturnType<typeof setTimeout>;
+    onConnectorExpired: ((connector: TonConnect) => void)[];
+};
 
-    return () => {
-        const listeners = connectorGeneratedListeners.get(chatId) || [];
-        connectorGeneratedListeners.set(
-            chatId,
-            listeners.filter(item => item !== callback)
-        );
-    };
-}
+const connectors = new Map<number, StoredConnectorData>();
 
-export function getConnector(chatId: number): TonConnect {
-    const connector = new TonConnect({
-        manifestUrl: process.env.MANIFEST_URL,
-        storage: new TonConnectStorage(chatId)
-    });
+export function getConnector(
+    chatId: number,
+    onConnectorExpired?: (connector: TonConnect) => void
+): TonConnect {
+    let storedItem: StoredConnectorData;
+    if (connectors.has(chatId)) {
+        storedItem = connectors.get(chatId)!;
+        clearTimeout(storedItem.timeout);
+    } else {
+        storedItem = {
+            connector: new TonConnect({
+                manifestUrl: process.env.MANIFEST_URL,
+                storage: new TonConnectStorage(chatId)
+            }),
+            onConnectorExpired: []
+        } as unknown as StoredConnectorData;
+    }
 
-    connectorGeneratedListeners.get(chatId)?.forEach(item => item());
+    if (onConnectorExpired) {
+        storedItem.onConnectorExpired.push(onConnectorExpired);
+    }
 
-    return connector;
+    storedItem.timeout = setTimeout(() => {
+        if (connectors.has(chatId)) {
+            const storedItem = connectors.get(chatId)!;
+            storedItem.connector.pauseConnection();
+            storedItem.onConnectorExpired.forEach(callback => callback(storedItem.connector));
+            connectors.delete(chatId);
+        }
+    }, Number(process.env.CONNECTOR_TTL_MS));
+
+    connectors.set(chatId, storedItem);
+    return storedItem.connector;
 }

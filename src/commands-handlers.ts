@@ -8,34 +8,45 @@ import { bot } from './bot';
 import { getWallets } from './ton-connect/wallets';
 import QRCode from 'qrcode';
 import TelegramBot from 'node-telegram-bot-api';
-import { getConnector, onNewConnectorGenerated } from './ton-connect/connector';
-import {
-    deleteMessageAndStopConnectorAfterTimeout,
-    markQRAsExpiredAfterTimeout,
-    setQRExpiredTimeout
-} from './bot-utils';
+import { getConnector } from './ton-connect/connector';
+import { pTimeout, pTimeoutException } from './utils';
+
+let newConnectRequestListeners: (() => void)[] = [];
 
 export async function handleConnectCommand(msg: TelegramBot.Message): Promise<void> {
+    newConnectRequestListeners.forEach(callback => callback());
+    let wasMessageDeleted = false;
+
     const chatId = msg.chat.id;
     const wallets = await getWallets();
 
-    const connector = getConnector(chatId);
+    const connector = getConnector(chatId, () => {
+        unsubscribe();
+        if (!wasMessageDeleted) {
+            markQRAsExpired(botMessage);
+        }
+    });
+
+    await connector.restoreConnection();
+    if (connector.connected) {
+        await bot.sendMessage(
+            chatId,
+            `You have already connect a ${
+                connector.wallet!.device.appName
+            } wallet\nYour address: ${toUserFriendlyAddress(
+                connector.wallet!.account.address,
+                connector.wallet!.account.chain === CHAIN.TESTNET
+            )}\n\n Disconnect wallet firstly to connect a new one`
+        );
+
+        return;
+    }
 
     const unsubscribe = connector.onStatusChange(wallet => {
         if (wallet) {
             bot.sendMessage(chatId, `${wallet.device.appName} wallet connected successfully`);
-            connector.pauseConnection();
+            unsubscribe();
         }
-    });
-
-    onNewConnectorGenerated(chatId, () => {
-        connector.pauseConnection();
-        unsubscribe();
-    });
-
-    setQRExpiredTimeout(() => {
-        connector.pauseConnection();
-        unsubscribe();
     });
 
     const link = connector.connect(wallets);
@@ -60,7 +71,14 @@ export async function handleConnectCommand(msg: TelegramBot.Message): Promise<vo
         }
     });
 
-    markQRAsExpiredAfterTimeout(botMessage);
+    const callback = async (): Promise<void> => {
+        unsubscribe();
+        await bot.deleteMessage(chatId, botMessage.message_id);
+        wasMessageDeleted = true;
+        newConnectRequestListeners = newConnectRequestListeners.filter(item => item !== callback);
+    };
+
+    newConnectRequestListeners.push(callback);
 }
 
 export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<void> {
@@ -76,25 +94,35 @@ export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<voi
 
     const wallets = await connector.getWallets();
 
-    connector
-        .sendTransaction({
-            validUntil: Date.now(),
+    pTimeout(
+        connector.sendTransaction({
+            validUntil: Math.round(
+                (Date.now() + Number(process.env.DELETE_SEND_TX_MESSAGE_TIMEOUT_MS)) / 1000
+            ),
             messages: [
                 {
                     amount: '1000000',
                     address: '0:E69F10CC84877ABF539F83F879291E5CA169451BA7BCE91A37A5CED3AB8080D3'
                 }
             ]
-        })
+        }),
+        Number(process.env.DELETE_SEND_TX_MESSAGE_TIMEOUT_MS)
+    )
         .then(() => {
             bot.sendMessage(chatId, `Transaction sent successfully`);
         })
         .catch(e => {
+            if (e === pTimeoutException) {
+                bot.sendMessage(chatId, `Transaction was not confirmed`);
+                return;
+            }
+
             if (e instanceof UserRejectsError) {
                 bot.sendMessage(chatId, `You rejected the transaction`);
-            } else {
-                bot.sendMessage(chatId, `Unknown error happened`);
+                return;
             }
+
+            bot.sendMessage(chatId, `Unknown error happened`);
         })
         .finally(() => connector.pauseConnection());
 
@@ -104,7 +132,7 @@ export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<voi
         deeplink = walletInfo.universalLink;
     }
 
-    const botMessage = await bot.sendMessage(
+    await bot.sendMessage(
         chatId,
         `Open ${connector.wallet!.device.appName} and confirm transaction`,
         {
@@ -120,8 +148,6 @@ export async function handleSendTXCommand(msg: TelegramBot.Message): Promise<voi
             }
         }
     );
-
-    deleteMessageAndStopConnectorAfterTimeout(botMessage, connector);
 }
 
 export async function handleDisconnectCommand(msg: TelegramBot.Message): Promise<void> {
@@ -165,4 +191,19 @@ export async function handleShowMyWalletCommand(msg: TelegramBot.Message): Promi
             connector.wallet!.account.chain === CHAIN.TESTNET
         )}`
     );
+}
+
+async function markQRAsExpired(message: TelegramBot.Message): Promise<void> {
+    await bot.editMessageMedia(
+        { type: 'photo', media: 'attach://expired.png' },
+        {
+            message_id: message.message_id,
+            chat_id: message.chat.id
+        }
+    );
+
+    bot.editMessageCaption('QR code expired. Generate a new one to connect wallet.', {
+        message_id: message.message_id,
+        chat_id: message.chat.id
+    });
 }
