@@ -1,0 +1,7 @@
+{
+  "url": "https://github.com/ton-connect/demo-telegram-bot",
+  "name": "Demo telegram bot dApp",
+  "iconUrl": "https://ton-connect.github.io/demo-dapp-with-react-ui/apple-touch-icon.png",
+  "termsOfUseUrl": "https://ton-connect.github.io/demo-dapp-with-react-ui/terms-of-use.txt",
+  "privacyPolicyUrl": "https://ton-connect.github.io/demo-dapp-with-react-ui/privacy-policy.txt"
+}
