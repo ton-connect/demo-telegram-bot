@@ -9,5 +9,12 @@
 
 [See the tutorial](https://docs.ton.org/develop/dapps/ton-connect/tg-bot-integration)
 
+## Run process manager
+`npm run start:daemon`
+
+## Stop process manager
+`npm run stop:daemon`
+
+
 ## Try it
 [ton_connect_example_bot](https://t.me/ton_connect_example_bot)
