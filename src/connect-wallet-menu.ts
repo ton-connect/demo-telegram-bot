@@ -1,9 +1,11 @@
 import TelegramBot, { CallbackQuery } from 'node-telegram-bot-api';
-import { getWallets } from './ton-connect/wallets';
+import { getWalletInfo, getWallets } from './ton-connect/wallets';
 import { bot } from './bot';
 import { getConnector } from './ton-connect/connector';
 import QRCode from 'qrcode';
 import * as fs from 'fs';
+import { isTelegramUrl, isWalletInfoRemote } from '@tonconnect/sdk';
+import { addTGReturnStrategy, buildUniversalKeyboard } from './utils';
 
 export const walletMenuCallbacks = {
     chose_wallet: onChooseWalletClick,
@@ -18,7 +20,7 @@ async function onChooseWalletClick(query: CallbackQuery, _: string): Promise<voi
             inline_keyboard: [
                 wallets.map(wallet => ({
                     text: wallet.name,
-                    callback_data: JSON.stringify({ method: 'select_wallet', data: wallet.name })
+                    callback_data: JSON.stringify({ method: 'select_wallet', data: wallet.appName })
                 })),
                 [
                     {
@@ -47,22 +49,11 @@ async function onOpenUniversalQRClick(query: CallbackQuery, _: string): Promise<
 
     await editQR(query.message!, link);
 
+    const keyboard = await buildUniversalKeyboard(link, wallets);
+
     await bot.editMessageReplyMarkup(
         {
-            inline_keyboard: [
-                [
-                    {
-                        text: 'Open Wallet',
-                        url: `https://ton-connect.github.io/open-tc?connect=${encodeURIComponent(
-                            link
-                        )}`
-                    },
-                    {
-                        text: 'Choose a Wallet',
-                        callback_data: JSON.stringify({ method: 'chose_wallet' })
-                    }
-                ]
-            ]
+            inline_keyboard: [keyboard]
         },
         {
             message_id: query.message?.message_id,
@@ -75,19 +66,24 @@ async function onWalletClick(query: CallbackQuery, data: string): Promise<void> 
     const chatId = query.message!.chat.id;
     const connector = getConnector(chatId);
 
-    const wallets = await getWallets();
-
-    const selectedWallet = wallets.find(wallet => wallet.name === data);
+    const selectedWallet = await getWalletInfo(data);
     if (!selectedWallet) {
         return;
     }
 
-    const link = connector.connect({
+    let buttonLink = connector.connect({
         bridgeUrl: selectedWallet.bridgeUrl,
         universalLink: selectedWallet.universalLink
     });
 
-    await editQR(query.message!, link);
+    let qrLink = buttonLink;
+
+    if (isTelegramUrl(selectedWallet.universalLink)) {
+        buttonLink = addTGReturnStrategy(buttonLink, process.env.TELEGRAM_BOT_LINK!);
+        qrLink = addTGReturnStrategy(qrLink, 'none');
+    }
+
+    await editQR(query.message!, qrLink);
 
     await bot.editMessageReplyMarkup(
         {
@@ -98,8 +94,8 @@ async function onWalletClick(query: CallbackQuery, data: string): Promise<void> 
                         callback_data: JSON.stringify({ method: 'chose_wallet' })
                     },
                     {
-                        text: `Open ${data}`,
-                        url: link
+                        text: `Open ${selectedWallet.name}`,
+                        url: buttonLink
                     }
                 ]
             ]
