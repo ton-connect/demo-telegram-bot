@@ -1,4 +1,4 @@
-# TonConnect demo telegram bot
+# GSCxConnect demo telegram bot
 
 ## Get started
 1. Copy `.env.example` as `.env` and add your bot token there
@@ -7,8 +7,7 @@
 4. `npm run compile`
 5. `npm run start`
 
-[See the tutorial](https://docs.ton.org/develop/dapps/ton-connect/tg-bot-integration)
-
+GSC20
 ## Run process manager
 `npm run start:daemon`
 
@@ -16,5 +15,5 @@
 `npm run stop:daemon`
 
 
-## Try it
+## Try it via GSCxDemo by TON
 [ton_connect_example_bot](https://t.me/ton_connect_example_bot)
