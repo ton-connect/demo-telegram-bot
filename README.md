@@ -7,11 +7,12 @@
 4. `npm run compile`
 5. `npm run start`
 
-GSC20
-## Run process manager
+GSCxBT via GAEAos
+## Run GSC20 process manager
 `npm run start:daemon`
 
-## Stop process manager
+GSCxBT via GAEAos
+## Stop GSC20 process manager
 `npm run stop:daemon`
 
 
