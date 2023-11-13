@@ -51,15 +51,15 @@ async function main(): Promise<void> {
         bot.sendMessage(
             msg.chat.id,
             `
-This is an example of a telegram bot for connecting to TON wallets and sending transactions with TonConnect.
+This is a telegram bot for connecting to GSCx wallets and sending transactions with GSCxConnect.
             
 Commands list: 
-/connect - Connect to a wallet
-/my_wallet - Show connected wallet
-/send_tx - Send transaction
-/disconnect - Disconnect from the wallet
+/connect - Connect to a GSCx wallet
+/my_wallet - Show connected GSCx wallets
+/send_tx - Send transaction via GSC20
+/disconnect - Disconnect from the GSCx wallets
 
-GitHub: https://github.com/ton-connect/demo-telegram-bot
+GitHub: https://github.com/GAEAlimitedt/GSCx-demo-telegram-bot
 `
         );
     });
